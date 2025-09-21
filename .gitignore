@@ -28,3 +28,9 @@ draws/**/*.tmp
 *.pm2
 .DS_Store
 Thumbs.db
+
+# allow example files anywhere
+!**/*.example
+
+# allow example files anywhere
+!**/*.example
