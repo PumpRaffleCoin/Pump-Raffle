@@ -1,0 +1,30 @@
+# -- NEVER COMMIT SECRETS ---------------------------------------------
+.env
+.env.*
+!.env.example      # keep the example file tracked
+!.env.sample       # (if you make one)
+
+# Specific envs (belt + braces)
+.env.overlay
+.env.telegram
+.env.topup
+.env.local
+*.secret
+*.key
+*.pem
+
+# -- Runtime & state -------------------------------------------------
+node_modules/
+logs/
+*.log
+npm-debug.log*
+
+# -- Temp / caches ---------------------------------------------------
+eligible.json
+draws/**/*.tmp
+
+# -- PM2 & OS noise --------------------------------------------------
+*.pid
+*.pm2
+.DS_Store
+Thumbs.db

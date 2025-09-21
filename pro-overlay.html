@@ -1,0 +1,183 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>RAFFLE — Pro Overlay</title>
+  <style>
+    :root{
+      --bg: rgba(0,0,0,0);
+      --card: rgba(0,0,0,0.40);
+      --muted: #b7eaff;
+      --fg: #ffffff;
+      --accent: #00d1ff;
+      --glow: 0 0 18px rgba(0,209,255,.55);
+      --radius: 18px;
+      --pad: 16px;
+      --gap: 16px;
+      --scale: 1;
+    }
+    html,body{margin:0;padding:0;background:var(--bg);color:var(--fg);font-family:ui-sans-serif,system-ui,Segoe UI,Roboto,Helvetica,Arial;}
+    .root{ transform: scale(var(--scale)); transform-origin: top left; }
+    .wrap{ display:grid; grid-template-columns: 1.6fr 1fr 1fr 1.1fr; gap: var(--gap); padding: var(--pad); align-items:stretch; }
+    .card{ background:var(--card); border-radius:var(--radius); padding:14px 16px; box-shadow: 0 6px 26px rgba(0,0,0,.28), var(--glow); position:relative; overflow:hidden; }
+    .title{ color:var(--muted); font-weight:700; letter-spacing:.35px; margin-bottom:8px; font-size:14px; }
+    .value{ font-weight:800; font-size:34px; letter-spacing:.6px; }
+    .sub{ font-size:14px; opacity:.9; }
+    .row{ display:flex; align-items:center; gap:14px; }
+
+    .prize{ grid-column: span 2; display:grid; grid-template-columns:auto 1fr; gap:18px; align-items:center; }
+    .prize .big{ font-size:52px; text-shadow: 0 0 18px rgba(0,209,255,.55); }
+    .glow{ color:var(--accent); }
+    .badge{ display:inline-block; font-size:12px; padding:4px 8px; border-radius:999px; background:rgba(255,255,255,0.08); border:1px solid rgba(255,255,255,0.18); margin-left:8px; }
+
+    .ring{ width:86px; height:86px; position:relative; }
+    .ring svg{ position:absolute; inset:0; }
+    .ring .t{ position:absolute; inset:0; display:flex; align-items:center; justify-content:center; font-weight:800; }
+
+    .winner{ grid-column: 1 / -1; display:flex; align-items:center; gap:14px; padding:12px 14px; }
+    .winner .addr{ font-weight:800; font-size:22px; }
+    .winner .tx a{ color:var(--accent); text-decoration:none; }
+    .flash{ position:absolute; inset:0; pointer-events:none; background:radial-gradient(ellipse at center, rgba(255,255,255,.35), rgba(255,255,255,0)); opacity:0; }
+    .flash.show{ animation: flash 900ms ease; }
+    @keyframes flash { 0%{opacity:.0} 20%{opacity:.9} 100%{opacity:0} }
+
+    .confetti{ position:absolute; pointer-events:none; inset:0; overflow:hidden; }
+    .dot{ position:absolute; width:10px; height:10px; border-radius:50%; opacity:.9; animation: fall 1200ms ease forwards; }
+    @keyframes fall { from{ transform: translateY(-20px) } to{ transform: translateY(120px) } }
+
+    @media (max-width:1200px){
+      .wrap{ grid-template-columns:1.4fr 1fr; }
+      .prize{ grid-column: 1 / -1; }
+    }
+  </style>
+</head>
+<body>
+  <div class="root">
+    <div class="wrap">
+      <div class="card prize">
+        <div class="ring">
+          <svg viewBox="0 0 40 40">
+            <circle cx="20" cy="20" r="17" stroke="rgba(255,255,255,.15)" stroke-width="4" fill="none"/>
+            <circle id="ring" cx="20" cy="20" r="17" stroke="var(--accent)" stroke-width="4" fill="none"
+                    stroke-linecap="round" stroke-dasharray="106.81" stroke-dashoffset="0"/>
+          </svg>
+          <div class="t" id="count">--:--</div>
+        </div>
+        <div>
+          <div class="title">Next Draw</div>
+          <div class="value big">Prize <span class="glow" id="prize">—</span><span class="badge">hourly</span></div>
+          <div class="sub">Snapshot at top of hour · Team / Treasury / LP excluded</div>
+        </div>
+        <div class="flash" id="flash"></div>
+      </div>
+
+      <div class="card">
+        <div class="title">Eligible (≥ $<span id="min">20</span>)</div>
+        <div class="value" id="eligible">0</div>
+        <div class="sub" id="elig-note">Holding at draw time</div>
+      </div>
+
+      <div class="card">
+        <div class="title">Price</div>
+        <div class="value" id="price">$–.--</div>
+        <div class="sub" id="price-note">Jup feed</div>
+      </div>
+
+      <div class="card">
+        <div class="title">Vault / Runway</div>
+        <div class="value" id="runway">– / –h</div>
+        <div class="sub">Auto top-ups from creator rewards</div>
+      </div>
+
+      <div class="card winner">
+        <div class="title">Last Winner</div>
+        <div class="addr" id="winner">—</div>
+        <div class="tx" id="tx"> </div>
+        <div class="confetti" id="confetti"></div>
+      </div>
+    </div>
+  </div>
+
+<script>
+const qp = new URLSearchParams(location.search);
+const accent = qp.get('accent');
+const scale  = parseFloat(qp.get('scale') || '1');
+if(accent) document.documentElement.style.setProperty('--accent', accent);
+if(!Number.isNaN(scale)) document.documentElement.style.setProperty('--scale', scale);
+
+const $ = s => document.getElementById(s);
+const short = a => a ? (a.slice(0,4)+'…'+a.slice(-4)) : '—';
+
+function nextTopOfHour(){
+  const now = new Date();
+  const next = new Date(now);
+  next.setMinutes(0,0,0);
+  next.setHours(now.getHours()+1);
+  return next;
+}
+
+function updateCountdown(){
+  const now = new Date();
+  const next = nextTopOfHour();
+  const ms = next - now;
+  const m = Math.max(0, Math.floor(ms/60000));
+  const s = Math.max(0, Math.floor((ms%60000)/1000));
+  $('count').textContent = String(m).padStart(2,'0') + ':' + String(s).padStart(2,'0');
+
+  const total = 60*60;
+  const remaining = Math.max(0, Math.floor(ms/1000));
+  const frac = 1 - (remaining / total);
+  const C = 2 * Math.PI * 17;
+  $('ring').setAttribute('stroke-dashoffset', String((1-frac) * C));
+}
+
+let lastSig = '';
+function confetti(){
+  const c = $('confetti');
+  const colors = ['#00d1ff','#7aff9c','#ffd166','#ff6b6b','#c084fc'];
+  for(let i=0;i<24;i++){
+    const d = document.createElement('div');
+    d.className='dot';
+    d.style.left = (8 + Math.random()*92) + '%';
+    d.style.top = (10 + Math.random()*8) + '%';
+    const col = colors[Math.floor(Math.random()*colors.length)];
+    d.style.background = col;
+    d.style.transform = `translateY(-20px) scale(${0.8+Math.random()*0.8})`;
+    c.appendChild(d);
+    setTimeout(()=>d.remove(), 1400);
+  }
+}
+
+async function poll(){
+  try{
+    const r = await fetch('http://localhost:8090/status', { cache:'no-store' });
+    const s = await r.json();
+
+    $('min').textContent = (s.minHoldUsd ?? 20);
+    $('eligible').textContent = (s.eligible ?? 0);
+    $('price').textContent = (s.usdPrice ? '$'+Number(s.usdPrice).toFixed(6) : '$–.--');
+    $('prize').textContent = (s.prizeSol ? s.prizeSol + ' SOL' : '—');
+    $('runway').textContent = (s.vaultSol!=null ? s.vaultSol.toFixed(2)+' SOL' : '–') + ' / ' + (s.runwayHours!=null ? s.runwayHours+'h' : '–');
+
+    const w = s.lastWinner;
+    if (w && w.sig) {
+      $('winner').textContent = short(w.to);
+      $('tx').innerHTML = '· <a target="_blank" href="https://solscan.io/tx/'+w.sig+'">tx</a>';
+      if (w.sig !== lastSig){
+        lastSig = w.sig;
+        $('flash').classList.remove('show'); void $('flash').offsetWidth; $('flash').classList.add('show');
+        confetti();
+      }
+    } else {
+      $('winner').textContent = '—';
+      $('tx').textContent = '';
+    }
+  }catch(e){}
+}
+
+setInterval(updateCountdown, 500); updateCountdown();
+setInterval(poll, 2000); poll();
+</script>
+</body>
+</html>
